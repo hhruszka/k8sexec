@@ -1,6 +1,6 @@
 # k8sexec
 
-k8sexec is based on the k8s.io framework. Its major purpose is to execute commands on containers. k8sexec.Exec() method
+k8sexec module is based on the k8s.io framework. Its major purpose is to execute commands in containers. k8sexec.Exec() method
 executes a command, commands or scripts provided through standard input ('stdin') or as arguments ('args'), or a combination of both. 
 It returns a pointer to an instance of ExecutionStatus, which encapsulates the results of the command execution. 
 This includes details such as the exit code, error messages, and the outputs captured from both the standard output and 
