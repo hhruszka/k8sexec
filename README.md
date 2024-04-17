@@ -50,9 +50,9 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	
 	return results
 }
-```go
-It is important to use strings.Fields(command) with commands so the k8s can execute them correctly.
 ```
+It is important to use strings.Fields(command) with commands so the k8s can execute them correctly.
+```go
 result := k8s.Exec(pod.Name, container.Name, strings.Fields(`find / -type f -perm /4000 -exec ls -l {} \; 2>/dev/null`), nil)
 ```
 Additionally, k8sexec module provides functions for retrieving pods, deployments and statefulset that can be used to 
