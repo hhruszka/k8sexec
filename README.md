@@ -43,7 +43,7 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	    for _,container := range pod.Spec.Containers {
             lsescript := bytes.NewBuffer(lse)
 			
-            result := k8s.Exec(pod.Name, container.Name, []string{"sh"}, lsescript)
+            result := k8s.Exec(pod.Name, container.Name, strings.Fields(`sh -s -- -c`), lsescript)
             results = append(results,result)
 	    }
 	}
@@ -51,6 +51,9 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	return results
 }
 ```
-
+It is important to use strings.Fields(command) with commands so the k8s can execute them correctly.
+```
+result := k8s.Exec(pod.Name, container.Name, strings.Fields(`find / -type f -perm /4000 -exec ls -l {} \; 2>/dev/null`), nil)
+```
 Additionally, k8sexec module provides functions for retrieving pods, deployments and statefulset that can be used to 
 automate enumeration of containers or any other information.
