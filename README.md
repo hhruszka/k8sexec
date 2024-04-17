@@ -30,12 +30,12 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	k8s,err := k8sexec.NewK8SExec(kubeconfig,namespace)
 	if err!= nil {
 		return nil
-    }
+    	}
 	
 	cnt,pods,err := k8s.GetUniquePods()
 	if err != nil {
 		return nil
-    }
+    	}
 	
 	fmt.Printf("Found %d pods\n",cnt)
 	
