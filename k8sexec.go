@@ -17,6 +17,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	exec2 "k8s.io/client-go/util/exec"
 	"strings"
+	"time"
 )
 
 // ExecutionStatus encapsulates the result and details of executing a command within a specific container.
@@ -293,7 +294,7 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 // by the container's name and the associated pod's name.
 func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util string) bool {
 	var stdout, stderr bytes.Buffer
-	retCode, _ := k8s.exec(podName, containerName, []string{util}, nil, &stdout, &stderr, false)
+	retCode, _ := k8s.exec(context.TODO(), podName, containerName, []string{util}, nil, &stdout, &stderr, false)
 	return retCode != CommandNotFound && retCode != CommandCannotExecute
 }
 
@@ -302,7 +303,7 @@ func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util str
 // execution code to indicate the success or failure of the operation, alongside any error encountered
 // during execution for detailed diagnostics. Additionally, the function captures and returns both
 // the standard output ('stdout') and standard error ('stderr') streams, providing details of the command's execution.
-func (k8s *K8SExec) exec(podName string, containerName string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool) (ExitCode, error) {
+func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool) (ExitCode, error) {
 	req := k8s.Clientset.CoreV1().RESTClient().
 		Post().
 		Resource("pods").
@@ -323,7 +324,7 @@ func (k8s *K8SExec) exec(podName string, containerName string, cmd []string, std
 		return InternalAppError, err
 	}
 
-	err = executor.StreamWithContext(context.TODO(), remotecommand.StreamOptions{
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
 		Stdout: stdout,
 		Stderr: stderr,
@@ -351,11 +352,31 @@ func NewExecutionStatus(pod string, container string, retCode ExitCode, error st
 // or a combination of both. This function returns a pointer to an instance of ExecutionStatus,
 // which encapsulates the results of the command execution. This includes details such as the exit code,
 // error messages, and the outputs captured from both the standard output and standard error streams.
-func (k8s *K8SExec) Exec(podName string, containerName string, args []string, stdin io.Reader) *ExecutionStatus {
+// timeout has to be provided in seconds.
+func (k8s *K8SExec) Exec(podName string, containerName string, args []string, stdin io.Reader, timeout time.Duration) *ExecutionStatus {
 	var stdout, stderr bytes.Buffer
 	var errMessage string
 
-	retCode, err := k8s.exec(podName, containerName, args, stdin, &stdout, &stderr, false)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(timeout*time.Second))
+	defer cancel()
+
+	retCode, err := k8s.exec(ctx, podName, containerName, args, stdin, &stdout, &stderr, false)
+	if err != nil {
+		errMessage = err.Error()
+	}
+
+	return NewExecutionStatus(podName, containerName, retCode, errMessage, stdout.String(), stderr.String())
+}
+
+// Exec executes a command provided through standard input ('stdin') or as arguments ('args'),
+// or a combination of both. This function returns a pointer to an instance of ExecutionStatus,
+// which encapsulates the results of the command execution. This includes details such as the exit code,
+// error messages, and the outputs captured from both the standard output and standard error streams.
+func (k8s *K8SExec) ExecWithContext(ctx context.Context, podName string, containerName string, args []string, stdin io.Reader) *ExecutionStatus {
+	var stdout, stderr bytes.Buffer
+	var errMessage string
+
+	retCode, err := k8s.exec(ctx, podName, containerName, args, stdin, &stdout, &stderr, false)
 	if err != nil {
 		errMessage = err.Error()
 	}
