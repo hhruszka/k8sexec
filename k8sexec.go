@@ -357,7 +357,7 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 	var stdout, stderr bytes.Buffer
 	var errMessage string
 
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(timeout))
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	retCode, err := k8s.exec(ctx, podName, containerName, args, stdin, &stdout, &stderr, false)
