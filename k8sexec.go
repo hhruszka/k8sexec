@@ -335,6 +335,7 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 		if errors.As(err, &exitError) {
 			return ExitCode(exitError.Code), exitError
 		}
+
 		return InternalAppError, err
 	}
 
@@ -368,10 +369,11 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 	return NewExecutionStatus(podName, containerName, retCode, errMessage, stdout.String(), stderr.String())
 }
 
-// Exec executes a command provided through standard input ('stdin') or as arguments ('args'),
+// ExecWithContext executes a command provided through standard input ('stdin') or as arguments ('args'),
 // or a combination of both. This function returns a pointer to an instance of ExecutionStatus,
 // which encapsulates the results of the command execution. This includes details such as the exit code,
 // error messages, and the outputs captured from both the standard output and standard error streams.
+// The user of this function must provide a context that will govern the command execution.
 func (k8s *K8SExec) ExecWithContext(ctx context.Context, podName string, containerName string, args []string, stdin io.Reader) *ExecutionStatus {
 	var stdout, stderr bytes.Buffer
 	var errMessage string
