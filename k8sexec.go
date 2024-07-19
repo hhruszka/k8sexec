@@ -11,6 +11,10 @@ import (
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	// these two client's plugins are not necessary for Nokia but added to have complete support
+	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	// oidc plugin is used in Nokia labs
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -51,7 +55,8 @@ type K8SExec struct {
 type ExitCode int
 
 const (
-	InternalAppError ExitCode = iota - 1
+	ExecutionTimeOut ExitCode = iota - 2
+	InternalAppError
 	Success
 	GeneralError
 	IncorrectUsage
@@ -206,6 +211,20 @@ func (k8s *K8SExec) GetStatefulSets() (*v1.StatefulSetList, error) {
 	return statefulSets, nil
 }
 
+// GetDaemonSets fetches all DaemonSets within the specified namespace, as determined by the 'k8s' context.
+// Utilizing the client-go library, this function communicates with the Kubernetes API to gather DaemonSets,
+// facilitating detailed management and operational oversight of these specific Kubernetes resources.
+// It returns a collection of StatefulSets and any errors encountered in the process, ensuring comprehensive
+// access to StatefulSet configurations within the given namespace.
+func (k8s *K8SExec) GetDaemonSets() (*v1.DaemonSetList, error) {
+	var daemonSets *v1.DaemonSetList
+	daemonSets, err := k8s.Clientset.AppsV1().DaemonSets(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return daemonSets, nil
+}
+
 // mapToLabelSelector takes a map containing key-value pairs and converts it into a Kubernetes label selector
 // string format. This utility function is essential for crafting label selectors used in Kubernetes API queries,
 // allowing for the filtering of resources based on specified labels. The resulting string is a concatenation of
@@ -273,6 +292,30 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 		}
 	}
 
+	var daemonSetsPods map[string]int = make(map[string]int)
+	daemonSets, err := k8s.GetDaemonSets()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	for _, daemonSet := range daemonSets.Items {
+		// to find all pods that are part of a given deployment we need to use statefulSet.Spec.Selector.MatchLabels
+		// from the deployment. This is essential.
+		options := metaV1.ListOptions{LabelSelector: mapToLabelSelector(daemonSet.Spec.Selector.MatchLabels)}
+		pods, err := k8s.GetPods(options)
+		if err != nil {
+			continue
+		}
+		// we are interested only in one instance of a pod
+		//podCount += len(pods)
+		if len(pods) > 0 {
+			uniquePods = append(uniquePods, pods[0])
+		}
+		for _, pod := range pods {
+			daemonSetsPods[pod.Name]++
+		}
+	}
+
 	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
 	if err != nil {
 		return 0, nil, err
@@ -282,6 +325,9 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 			continue
 		}
 		if _, ok := statefulSetsPods[pod.Name]; ok {
+			continue
+		}
+		if _, ok := daemonSetsPods[pod.Name]; ok {
 			continue
 		}
 		uniquePods = append(uniquePods, pod)
@@ -294,8 +340,12 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 // by the container's name and the associated pod's name.
 func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util string) bool {
 	var stdout, stderr bytes.Buffer
-	retCode, _ := k8s.exec(context.TODO(), podName, containerName, []string{util}, nil, &stdout, &stderr, false)
-	return retCode != CommandNotFound && retCode != CommandCannotExecute
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+
+	retCode, _ := k8s.exec(ctx, podName, containerName, []string{util}, nil, &stdout, &stderr, false)
+	// TODO: Maybe it would make sense to make it a positive check for successful execution instead of a negative one
+	return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != InternalAppError
 }
 
 // exec executes a command provided via standard input ('stdin'), command-line arguments ('cmd'),
@@ -353,7 +403,7 @@ func NewExecutionStatus(pod string, container string, retCode ExitCode, error st
 // or a combination of both. This function returns a pointer to an instance of ExecutionStatus,
 // which encapsulates the results of the command execution. This includes details such as the exit code,
 // error messages, and the outputs captured from both the standard output and standard error streams.
-// timeout has to be provided in seconds.
+// timeout has to be provided as time.Duration.
 func (k8s *K8SExec) Exec(podName string, containerName string, args []string, stdin io.Reader, timeout time.Duration) *ExecutionStatus {
 	var stdout, stderr bytes.Buffer
 	var errMessage string
@@ -361,11 +411,22 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// ----- debug ----
+	//var buffer bytes.Buffer
+	//tee := io.TeeReader(stdin, &buffer)
+	//_, _ = io.ReadAll(tee)
+	//fmt.Println(buffer.String())
+	//stdin = bytes.NewReader(buffer.Bytes())
+	// ----- debug ----
+
 	retCode, err := k8s.exec(ctx, podName, containerName, args, stdin, &stdout, &stderr, false)
 	if err != nil {
 		errMessage = err.Error()
 	}
 
+	if errors.Is(err, context.DeadlineExceeded) {
+		retCode = ExecutionTimeOut
+	}
 	return NewExecutionStatus(podName, containerName, retCode, errMessage, stdout.String(), stderr.String())
 }
 
@@ -373,7 +434,7 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 // or a combination of both. This function returns a pointer to an instance of ExecutionStatus,
 // which encapsulates the results of the command execution. This includes details such as the exit code,
 // error messages, and the outputs captured from both the standard output and standard error streams.
-// The user of this function must provide a context that will govern the command execution.
+// The use of this function must provide a context that will govern the command exeuction.
 func (k8s *K8SExec) ExecWithContext(ctx context.Context, podName string, containerName string, args []string, stdin io.Reader) *ExecutionStatus {
 	var stdout, stderr bytes.Buffer
 	var errMessage string
