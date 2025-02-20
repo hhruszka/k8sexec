@@ -336,6 +336,70 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 	return len(podsList.Items), uniquePods, nil
 }
 
+func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (string, error) {
+	var stdout, stderr bytes.Buffer
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+
+	retCode, err := k8s.exec(ctx, podName, containerName, []string{"cat", filePath}, nil, &stdout, &stderr, false)
+	if retCode != Success {
+		retCode, err = k8s.exec(ctx, podName, containerName, []string{"sed", "", filePath}, nil, &stdout, &stderr, false)
+	}
+	if retCode != Success {
+		retCode, err = k8s.exec(ctx, podName, containerName, []string{"tail", "-n", "+1", filePath}, nil, &stdout, &stderr, false)
+	}
+	if retCode != Success {
+		command := []string{
+			"sh", "-c",
+			fmt.Sprintf("while IFS= read -r line; do echo \"$line\"; done < '%s'", filePath),
+		}
+		retCode, err = k8s.exec(ctx, podName, containerName, command, nil, &stdout, &stderr, false)
+	}
+	return stdout.String(), err
+}
+
+func (k8s *K8SExec) CheckIfFilePathIsReadable(podName, containerName string, filePath string) bool {
+	var stdout, stderr bytes.Buffer
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+
+	retCode, _ := k8s.exec(ctx, podName, containerName, []string{"stat", "-c", "%a", filePath}, nil, &stdout, &stderr, false)
+
+	if retCode != Success {
+		retCode, _ = k8s.exec(ctx, podName, containerName, []string{"sh", "-c", fmt.Sprintf("test -r '%s'", filePath)}, nil, &stdout, &stderr, false)
+
+		return retCode == Success
+	}
+	permStr := stdout.String()
+	if len(permStr) >= 3 {
+		if len(permStr) == 4 {
+			permStr = permStr[1:]
+		}
+
+		ownerPerm := int(permStr[0] - '0')
+		groupPerm := int(permStr[1] - '0')
+		othersPerm := int(permStr[2] - '0')
+		const readBit = 4
+
+		return ownerPerm&readBit != 0 || groupPerm&readBit != 0 || othersPerm&readBit != 0
+	}
+
+	return false
+}
+
+func (k8s *K8SExec) CheckIfFilePathExists(podName, containerName string, filePath string) bool {
+	var stdout, stderr bytes.Buffer
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelFunc()
+
+	retCode, _ := k8s.exec(ctx, podName, containerName, []string{"stat", filePath}, nil, &stdout, &stderr, false)
+	if retCode != Success {
+		retCode, _ = k8s.exec(ctx, podName, containerName, []string{"sh", "-c", fmt.Sprintf("[ -f '%s' ]", filePath)}, nil, &stdout, &stderr, false)
+	}
+
+	return retCode == Success
+}
+
 // CheckUtilInContainer verifies the existence of a specified 'util' binary within a container, identified
 // by the container's name and the associated pod's name.
 func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util string) bool {
