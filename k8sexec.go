@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	exec2 "k8s.io/client-go/util/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -334,6 +335,31 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 	}
 
 	return len(podsList.Items), uniquePods, nil
+}
+
+// GetUniquePods retrieves a comprehensive and unique list of Pods within a given namespace,
+// as provided by the 'k8s' context. It targets Pods associated with Deployments, StatefulSets,
+// and those directly within the namespace, ensuring no duplicates.
+func (k8s *K8SExec) GetUniqueImages() (int, []string, error) {
+	var images []string
+	var containersCount int
+
+	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	if err != nil {
+		return 0, nil, err
+	}
+
+	for _, pod := range podsList.Items {
+		containersCount += len(pod.Spec.Containers)
+		for _, container := range pod.Spec.Containers {
+			if slices.Contains(images, container.Image) {
+				continue
+			}
+			images = append(images, container.Image)
+		}
+	}
+
+	return containersCount, images, nil
 }
 
 func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (string, error) {
