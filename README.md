@@ -1,6 +1,6 @@
 # k8sexec
 
-k8sexec is based on the k8s.io framework. Its major purpose is to execute commands on containers. k8sexec.Exec() method
+k8sexec module is based on the k8s.io framework. Its major purpose is to execute commands in containers. k8sexec.Exec() method
 executes a command, commands or scripts provided through standard input ('stdin') or as arguments ('args'), or a combination of both. 
 It returns a pointer to an instance of ExecutionStatus, which encapsulates the results of the command execution. 
 This includes details such as the exit code, error messages, and the outputs captured from both the standard output and 
@@ -30,12 +30,12 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	k8s,err := k8sexec.NewK8SExec(kubeconfig,namespace)
 	if err!= nil {
 		return nil
-    }
+    	}
 	
 	cnt,pods,err := k8s.GetUniquePods()
 	if err != nil {
 		return nil
-    }
+    	}
 	
 	fmt.Printf("Found %d pods\n",cnt)
 	
@@ -43,7 +43,7 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	    for _,container := range pod.Spec.Containers {
             lsescript := bytes.NewBuffer(lse)
 			
-            result := k8s.Exec(pod.Name, container.Name, []string{"sh"}, lsescript)
+            result := k8s.Exec(pod.Name, container.Name, strings.Fields(`sh -s -- -c`), lsescript)
             results = append(results,result)
 	    }
 	}
@@ -51,6 +51,9 @@ func test(kubeconfig string, namespace string)  []*k8sexec.ExecutionStatus {
 	return results
 }
 ```
-
+It is important to use strings.Fields(command) with commands so the k8s can execute them correctly.
+```go
+result := k8s.Exec(pod.Name, container.Name, strings.Fields(`find / -type f -perm /4000 -exec ls -l {} \; 2>/dev/null`), nil)
+```
 Additionally, k8sexec module provides functions for retrieving pods, deployments and statefulset that can be used to 
 automate enumeration of containers or any other information.
