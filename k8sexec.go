@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	v1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+
 	// these two client's plugins are not necessary for Nokia but added to have complete support
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -115,6 +117,8 @@ var exitCodeDescriptions map[ExitCode]string = map[ExitCode]string{
 	// Add more signal based codes as needed
 }
 
+var throttle *TokenBucket = NewTokenBucket(100, 200)
+
 // GetExitCode returns an ExitCode retrieved from CodeExitError type returned by k8s.io/client-go/util/exec and
 // a corresponding description from exitCodeDescriptions map.
 func GetExitCode(err error) (ExitCode, string) {
@@ -149,12 +153,31 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 		return nil, err
 	}
 
+	//fmt.Printf("QPS=%f Burst=%d Timeout=%v\n", config.QPS, config.Burst, config.Timeout)
+	config.QPS = 110
+	config.Burst = 220
+	config.Timeout = 0
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &K8SExec{Config: config, Clientset: clientset, Namespace: namespace}, nil
+}
+
+// GetJobs retrieves all Jobs within the namespace specified by the 'k8s' context.
+// This function utilizes the Kubernetes client-go library to fetch a list of Jobs
+// from the specified namespace, facilitating the management and interaction with
+// Kubernetes resources. It returns a list of Jobs and any error encountered during
+// the retrieval process.
+func (k8s *K8SExec) GetJobs(options metaV1.ListOptions) ([]batchv1.Job, error) {
+	// Retrieve jobs in the "default" namespace
+	jobs, err := k8s.Clientset.BatchV1().Jobs(k8s.Namespace).List(context.TODO(), options)
+	if err != nil {
+		return nil, err
+	}
+	return jobs.Items, nil
 }
 
 // GetPod retrieves a Pod based on its name within the specified namespace.
@@ -337,7 +360,7 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 	return len(podsList.Items), uniquePods, nil
 }
 
-// GetUniquePods retrieves a comprehensive and unique list of Pods within a given namespace,
+// GetUniqueImages retrieves a comprehensive and unique list of Pods within a given namespace,
 // as provided by the 'k8s' context. It targets Pods associated with Deployments, StatefulSets,
 // and those directly within the namespace, ensuring no duplicates.
 func (k8s *K8SExec) GetUniqueImages() (int, []string, error) {
@@ -362,6 +385,35 @@ func (k8s *K8SExec) GetUniqueImages() (int, []string, error) {
 	return containersCount, images, nil
 }
 
+// GetUniqueImages retrieves a comprehensive and unique list of Pods within a given namespace,
+// as provided by the 'k8s' context. It targets Pods associated with Deployments, StatefulSets,
+// and those directly within the namespace, ensuring no duplicates.
+func (k8s *K8SExec) GetLogs(podName string, containerName string) (int, []byte, error) {
+	// Request logs
+	req := k8s.Clientset.CoreV1().Pods(k8s.Namespace).GetLogs(podName, &coreV1.PodLogOptions{
+		Container: containerName,
+	})
+
+	throttle.Wait()
+
+	// Read log stream
+	logs, err := req.Stream(context.TODO())
+	if err != nil {
+		return 0, nil, err
+	}
+	defer logs.Close()
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, logs)
+
+	//n, err := buf.ReadFrom(logs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("Filed to get logs for %s/%s", podName, containerName)
+	}
+
+	return buf.Len(), buf.Bytes(), nil
+}
+
 func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
@@ -384,6 +436,7 @@ func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (st
 	return stdout.String(), err
 }
 
+// CheckIfFilePathIsReadable determines if a file at the given path in a specified container and pod is readable.
 func (k8s *K8SExec) CheckIfFilePathIsReadable(podName, containerName string, filePath string) bool {
 	var stdout, stderr bytes.Buffer
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
@@ -391,11 +444,14 @@ func (k8s *K8SExec) CheckIfFilePathIsReadable(podName, containerName string, fil
 
 	retCode, _ := k8s.exec(ctx, podName, containerName, []string{"stat", "-c", "%a", filePath}, nil, &stdout, &stderr, false)
 
+	// stat failed, let's try 'test -r'
 	if retCode != Success {
 		retCode, _ = k8s.exec(ctx, podName, containerName, []string{"sh", "-c", fmt.Sprintf("test -r '%s'", filePath)}, nil, &stdout, &stderr, false)
 
 		return retCode == Success
 	}
+
+	// stat was successful so let's analyze permissions
 	permStr := stdout.String()
 	if len(permStr) >= 3 {
 		if len(permStr) == 4 {
@@ -463,6 +519,8 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 	if err != nil {
 		return InternalAppError, err
 	}
+
+	throttle.Wait()
 
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
