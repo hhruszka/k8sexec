@@ -1,6 +1,7 @@
 package k8sexec
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -117,7 +119,7 @@ var exitCodeDescriptions map[ExitCode]string = map[ExitCode]string{
 	// Add more signal based codes as needed
 }
 
-var throttle *TokenBucket = NewTokenBucket(100, 200)
+var throttle *TokenBucket = NewTokenBucket(2, 4)
 
 // GetExitCode returns an ExitCode retrieved from CodeExitError type returned by k8s.io/client-go/util/exec and
 // a corresponding description from exitCodeDescriptions map.
@@ -153,10 +155,9 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 		return nil, err
 	}
 
-	//fmt.Printf("QPS=%f Burst=%d Timeout=%v\n", config.QPS, config.Burst, config.Timeout)
-	config.QPS = 110
-	config.Burst = 220
-	config.Timeout = 0
+	config.QPS = 50
+	config.Burst = 100
+	config.Timeout = 300 * time.Second
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -385,31 +386,56 @@ func (k8s *K8SExec) GetUniqueImages() (int, []string, error) {
 	return containersCount, images, nil
 }
 
-// GetUniqueImages retrieves a comprehensive and unique list of Pods within a given namespace,
-// as provided by the 'k8s' context. It targets Pods associated with Deployments, StatefulSets,
-// and those directly within the namespace, ensuring no duplicates.
+// GetLogs retrieves the logs from the specified pod and container within the Kubernetes namespace of the K8SExec instance.
+// It returns the size of the logs in bytes, the log data as a byte slice, and an error if the operation fails.
 func (k8s *K8SExec) GetLogs(podName string, containerName string) (int, []byte, error) {
 	// Request logs
-	req := k8s.Clientset.CoreV1().Pods(k8s.Namespace).GetLogs(podName, &coreV1.PodLogOptions{
-		Container: containerName,
-	})
+	opt := new(coreV1.PodLogOptions)
+	opt.Container = containerName
+	req := k8s.Clientset.CoreV1().Pods(k8s.Namespace).GetLogs(podName, opt)
 
 	throttle.Wait()
 
 	// Read log stream
-	logs, err := req.Stream(context.TODO())
+	logReader, err := req.Stream(context.Background())
 	if err != nil {
 		return 0, nil, err
 	}
-	defer logs.Close()
+	defer logReader.Close()
+
+	runtime.ErrorHandlers = []runtime.ErrorHandler{
+		func(ctx context.Context, err error, msg string, keysAndValues ...interface{}) {
+			// ignore unhandled errors
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return
+			}
+
+		},
+	}
 
 	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, logs)
+	r := bufio.NewReader(logReader)
+	for {
+		data, err := r.ReadBytes('\n')
+		if _, err := buf.Write(data); err != nil {
+			return 0, nil, err
+		}
 
-	//n, err := buf.ReadFrom(logs)
-	if err != nil {
-		return 0, nil, fmt.Errorf("Filed to get logs for %s/%s", podName, containerName)
+		if err != nil {
+			if err != io.EOF {
+				return 0, nil, err
+			}
+			break
+		}
 	}
+
+	//buf := new(bytes.Buffer)
+	//_, err = io.Copy(buf, logReader)
+	//
+	////n, err := buf.ReadFrom(logs)
+	//if err != nil {
+	//	return 0, nil, fmt.Errorf("Failed to get logs for %s/%s due to %w", podName, containerName, err)
+	//}
 
 	return buf.Len(), buf.Bytes(), nil
 }
@@ -520,7 +546,7 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 		return InternalAppError, err
 	}
 
-	throttle.Wait()
+	//throttle.Wait()
 
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
