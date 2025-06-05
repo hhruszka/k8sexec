@@ -169,6 +169,18 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 	return &K8SExec{Config: config, Clientset: clientset, Namespace: namespace}, nil
 }
 
+// GetNamespace returns the namespace associated with the K8SExec instance as a string.
+func (k8s *K8SExec) GetNamespace() string {
+	return k8s.Namespace
+}
+
+// SetNamespace sets the namespace for the K8SExec instance.
+// This function is used to set the namespace for the K8SExec instance,
+// which is used to interact with Kubernetes resources.
+func (k8s *K8SExec) SetNamespace(namespace string) {
+	k8s.Namespace = namespace
+}
+
 // GetJobs retrieves all Jobs within the namespace specified by the 'k8s' context.
 // This function utilizes the Kubernetes client-go library to fetch a list of Jobs
 // from the specified namespace, facilitating the management and interaction with
