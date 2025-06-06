@@ -181,6 +181,19 @@ func (k8s *K8SExec) SetNamespace(namespace string) {
 	k8s.Namespace = namespace
 }
 
+// GetAllNamespaces retrieves a list of all namespace names in the Kubernetes cluster.
+func (k8s *K8SExec) GetAllNamespaces() ([]string, error) {
+	list, err := k8s.Clientset.CoreV1().Namespaces().List(context.Background(), metaV1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var namespaces []string
+	for _, ns := range list.Items {
+		namespaces = append(namespaces, ns.GetNamespace())
+	}
+	return namespaces, nil
+}
+
 // GetJobs retrieves all Jobs within the namespace specified by the 'k8s' context.
 // This function utilizes the Kubernetes client-go library to fetch a list of Jobs
 // from the specified namespace, facilitating the management and interaction with
