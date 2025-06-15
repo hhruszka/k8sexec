@@ -593,6 +593,11 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 	return Success, nil
 }
 
+// DirectExec executes a command inside a specified container of a pod, with I/O streams and TTY access if enabled.
+func (k8s *K8SExec) DirectExec(ctx context.Context, podName string, containerName string, cmd []string, stdin io.Reader, stdout io.Writer, stderr io.Writer, tty bool) (ExitCode, error) {
+	return k8s.exec(ctx, podName, containerName, cmd, stdin, stdout, stderr, tty)
+}
+
 // NewExecutionStatus initializes a new instance of the ExecutionStatus type, providing a method
 // to encapsulate the outcome of a command's execution within a structured format.
 // This function serves as a constructor, setting up an ExecutionStatus instance.
