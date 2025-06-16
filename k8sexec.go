@@ -544,7 +544,7 @@ func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util str
 
 	retCode, _ := k8s.exec(ctx, podName, containerName, []string{util}, nil, &stdout, &stderr, false)
 	// TODO: Maybe it would make sense to make it a positive check for successful execution instead of a negative one
-	return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != InternalAppError
+	return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != ExitStatusOutOfRange
 }
 
 // exec executes a command provided via standard input ('stdin'), command-line arguments ('cmd'),
