@@ -52,10 +52,14 @@ type ExecutionStatus struct {
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
 // and authentication credentials, facilitating effective interaction with Kubernetes resources.
 type K8SExec struct {
-	Config    *rest.Config
-	Clientset *kubernetes.Clientset
-	Namespace string
+	Config         *rest.Config
+	Clientset      *kubernetes.Clientset
+	Namespace      string
+	ctx            context.Context
+	defaultTimeout time.Duration
 }
+
+const DEFAULT_TIMEOUT = 5 * time.Second
 
 // ExitCode is an enumeration of possible exit codes with descriptive names.
 // It provides a more idiomatic way to refer to exit codes within the Go application.
@@ -166,7 +170,42 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 		return nil, err
 	}
 
-	return &K8SExec{Config: config, Clientset: clientset, Namespace: namespace}, nil
+	return &K8SExec{
+		Config:         config,
+		Clientset:      clientset,
+		Namespace:      namespace,
+		ctx:            context.TODO(),
+		defaultTimeout: DEFAULT_TIMEOUT}, nil
+}
+
+// SetContext sets the context for the K8SExec instance, allowing it to control cancellation and timeouts for its operations.
+func (k8s *K8SExec) SetContext(ctx context.Context) {
+	k8s.ctx = ctx
+}
+
+// GetContext retrieves the context associated with the K8SExec instance for managing request lifetime and cancellation.
+func (k8s *K8SExec) GetContext() context.Context {
+	return k8s.ctx
+}
+
+// SetDefaultTimeout sets the default timeout duration for Kubernetes execution operations.
+func (k8s *K8SExec) SetDefaultTimeout(timeout time.Duration) {
+	k8s.defaultTimeout = timeout
+}
+
+// GetDefaultTimeout returns the default timeout duration set for the K8SExec instance.
+func (k8s *K8SExec) GetDefaultTimeout() time.Duration {
+	return k8s.defaultTimeout
+}
+
+// GetClientset returns the Kubernetes clientset associated with the K8SExec instance.
+func (k8s *K8SExec) GetClientset() *kubernetes.Clientset {
+	return k8s.Clientset
+}
+
+// GetConfig returns the Kubernetes REST configuration associated with the K8SExec instance.
+func (k8s *K8SExec) GetConfig() *rest.Config {
+	return k8s.Config
 }
 
 // GetNamespace returns the namespace associated with the K8SExec instance as a string.
@@ -183,7 +222,7 @@ func (k8s *K8SExec) SetNamespace(namespace string) {
 
 // GetAllNamespaces retrieves a list of all namespace names in the Kubernetes cluster.
 func (k8s *K8SExec) GetAllNamespaces() ([]string, error) {
-	list, err := k8s.Clientset.CoreV1().Namespaces().List(context.Background(), metaV1.ListOptions{})
+	list, err := k8s.Clientset.CoreV1().Namespaces().List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +240,7 @@ func (k8s *K8SExec) GetAllNamespaces() ([]string, error) {
 // the retrieval process.
 func (k8s *K8SExec) GetJobs(options metaV1.ListOptions) ([]batchv1.Job, error) {
 	// Retrieve jobs in the "default" namespace
-	jobs, err := k8s.Clientset.BatchV1().Jobs(k8s.Namespace).List(context.TODO(), options)
+	jobs, err := k8s.Clientset.BatchV1().Jobs(k8s.Namespace).List(k8s.ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -213,8 +252,8 @@ func (k8s *K8SExec) GetJobs(options metaV1.ListOptions) ([]batchv1.Job, error) {
 // of locating a specific Pod within a namespace, leveraging the Kubernetes client-go
 // library to interact with the Kubernetes API. It returns the found Pod and any error
 // encountered during the retrieval process.
-func (k8s *K8SExec) GetPod(podName string, options metaV1.GetOptions) (*coreV1.Pod, error) {
-	pod, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).Get(context.TODO(), podName, metaV1.GetOptions{})
+func (k8s *K8SExec) GetPod(podName string) (*coreV1.Pod, error) {
+	pod, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).Get(k8s.ctx, podName, metaV1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +267,7 @@ func (k8s *K8SExec) GetPod(podName string, options metaV1.GetOptions) (*coreV1.P
 // the retrieval process.
 func (k8s *K8SExec) GetPods(options metaV1.ListOptions) ([]coreV1.Pod, error) {
 	var pods *coreV1.PodList
-	pods, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(context.TODO(), options)
+	pods, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(k8s.ctx, options)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +281,7 @@ func (k8s *K8SExec) GetPods(options metaV1.ListOptions) ([]coreV1.Pod, error) {
 // thus enabling comprehensive oversight of Deployment resources within the designated namespace.
 func (k8s *K8SExec) GetDeployments() (*v1.DeploymentList, error) {
 	var deployments *v1.DeploymentList
-	deployments, err := k8s.Clientset.AppsV1().Deployments(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	deployments, err := k8s.Clientset.AppsV1().Deployments(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +295,7 @@ func (k8s *K8SExec) GetDeployments() (*v1.DeploymentList, error) {
 // access to StatefulSet configurations within the given namespace.
 func (k8s *K8SExec) GetStatefulSets() (*v1.StatefulSetList, error) {
 	var statefulSets *v1.StatefulSetList
-	statefulSets, err := k8s.Clientset.AppsV1().StatefulSets(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	statefulSets, err := k8s.Clientset.AppsV1().StatefulSets(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +309,7 @@ func (k8s *K8SExec) GetStatefulSets() (*v1.StatefulSetList, error) {
 // access to StatefulSet configurations within the given namespace.
 func (k8s *K8SExec) GetDaemonSets() (*v1.DaemonSetList, error) {
 	var daemonSets *v1.DaemonSetList
-	daemonSets, err := k8s.Clientset.AppsV1().DaemonSets(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	daemonSets, err := k8s.Clientset.AppsV1().DaemonSets(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +407,7 @@ func (k8s *K8SExec) GetUniquePods() (int, []coreV1.Pod, error) {
 		}
 	}
 
-	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return 0, nil, err
 	}
@@ -395,7 +434,7 @@ func (k8s *K8SExec) GetUniqueImages() (int, []string, error) {
 	var images []string
 	var containersCount int
 
-	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(context.TODO(), metaV1.ListOptions{})
+	podsList, err := k8s.Clientset.CoreV1().Pods(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
 	if err != nil {
 		return 0, nil, err
 	}
@@ -424,7 +463,7 @@ func (k8s *K8SExec) GetLogs(podName string, containerName string) (int, []byte, 
 	throttle.Wait()
 
 	// Read log stream
-	logReader, err := req.Stream(context.Background())
+	logReader, err := req.Stream(k8s.ctx)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -456,20 +495,15 @@ func (k8s *K8SExec) GetLogs(podName string, containerName string) (int, []byte, 
 		}
 	}
 
-	//buf := new(bytes.Buffer)
-	//_, err = io.Copy(buf, logReader)
-	//
-	////n, err := buf.ReadFrom(logs)
-	//if err != nil {
-	//	return 0, nil, fmt.Errorf("Failed to get logs for %s/%s due to %w", podName, containerName, err)
-	//}
-
 	return buf.Len(), buf.Bytes(), nil
 }
 
 func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	var ctx context.Context
+	var cancelFunc context.CancelFunc
+
+	ctx, cancelFunc = context.WithTimeout(k8s.ctx, 5*time.Second)
 	defer cancelFunc()
 
 	retCode, err := k8s.exec(ctx, podName, containerName, []string{"cat", filePath}, nil, &stdout, &stderr, false)
@@ -492,7 +526,7 @@ func (k8s *K8SExec) ReadFile(podName, containerName string, filePath string) (st
 // CheckIfFilePathIsReadable determines if a file at the given path in a specified container and pod is readable.
 func (k8s *K8SExec) CheckIfFilePathIsReadable(podName, containerName string, filePath string) bool {
 	var stdout, stderr bytes.Buffer
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancelFunc := context.WithTimeout(k8s.ctx, 5*time.Second)
 	defer cancelFunc()
 
 	retCode, _ := k8s.exec(ctx, podName, containerName, []string{"stat", "-c", "%a", filePath}, nil, &stdout, &stderr, false)
