@@ -48,6 +48,12 @@ type ExecutionStatus struct {
 	ExecTime  time.Time `json:"ExecTime"`
 }
 
+// String returns a formatted string representation of an ExecutionStatus instance detailing execution parameters and results.
+func (e *ExecutionStatus) String() string {
+	return fmt.Sprintf("Namespace: %s, Pod: %s, Container: %s, RetCode: %d, Error: %s, Stdout: %s, Stderr: %s, ExecTime: %s",
+		e.Namespace, e.Pod, e.Container, e.RetCode, strings.Join(e.Error, "\n"), strings.Join(e.Stdout, "\n"), strings.Join(e.Stderr, "\n"), e.ExecTime)
+}
+
 // K8SExec defines the context for modules executing commands in Kubernetes environments.
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
 // and authentication credentials, facilitating effective interaction with Kubernetes resources.
