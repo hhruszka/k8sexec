@@ -11,10 +11,10 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
-
 	// these two client's plugins are not necessary for Nokia but added to have complete support
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -663,7 +663,11 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 		errMessage = err.Error()
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) {
+	//errors.Is(err, context.Canceled) ||
+	//	errors.Is(err, io.EOF) ||
+	//	errors.Is(err, io.ErrUnexpectedEOF) ||
+
+	if net.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded) {
 		retCode = ExecutionTimeOut
 	}
 	return NewExecutionStatus(k8s.Namespace, podName, containerName, retCode, errMessage, stdout.String(), stderr.String(), execTime)
