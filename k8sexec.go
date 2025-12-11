@@ -7,6 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"slices"
+	"strings"
+	"time"
+
 	v1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	coreV1 "k8s.io/api/core/v1"
@@ -15,18 +20,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+
 	// these two client's plugins are not necessary for Nokia but added to have complete support
 	_ "k8s.io/client-go/plugin/pkg/client/auth/azure"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+
 	// oidc plugin is used in Nokia labs
 	_ "k8s.io/client-go/plugin/pkg/client/auth/oidc"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
 	exec2 "k8s.io/client-go/util/exec"
-	"slices"
-	"strings"
-	"time"
 )
 
 // ExecutionStatus encapsulates the result and details of executing a command within a specific container.
@@ -72,7 +76,8 @@ const DEFAULT_TIMEOUT = 5 * time.Second
 type ExitCode int
 
 const (
-	ExecutionTimeOut ExitCode = iota - 2
+	ManualAssessmentNeeded ExitCode = iota - 3
+	ExecutionTimeOut
 	InternalAppError
 	Success
 	GeneralError
