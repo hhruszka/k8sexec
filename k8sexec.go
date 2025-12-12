@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/net"
+	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -62,11 +64,13 @@ func (e *ExecutionStatus) String() string {
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
 // and authentication credentials, facilitating effective interaction with Kubernetes resources.
 type K8SExec struct {
-	Config         *rest.Config
-	Clientset      *kubernetes.Clientset
-	Namespace      string
-	ctx            context.Context
-	defaultTimeout time.Duration
+	Config                    *rest.Config
+	Clientset                 *kubernetes.Clientset
+	Namespace                 string
+	ctx                       context.Context
+	defaultTimeout            time.Duration
+	checkNotFoundExitCodeOnce sync.Once
+	notFoundExitCode          ExitCode
 }
 
 const DEFAULT_TIMEOUT = 5 * time.Second
@@ -269,6 +273,53 @@ func (k8s *K8SExec) GetPod(podName string) (*coreV1.Pod, error) {
 		return nil, err
 	}
 	return pod, nil
+}
+
+// GetPodContainers retrieves a list of containers associated with a given Pod.
+// It leverages the Kubernetes client-go library to query the Kubernetes API for Pod containers,
+// facilitating the retrieval of container information for a given Pod.
+func (k8s *K8SExec) GetPodContainers(podName string) ([]coreV1.Container, error) {
+	pod, err := k8s.GetPod(podName)
+	if err != nil {
+		return nil, err
+	}
+	return pod.Spec.Containers, nil
+}
+
+// GetPodContainer retrieves a specific container associated with a given Pod.
+// It leverages the Kubernetes client-go library to query the Kubernetes API for Pod containers,
+// facilitating the retrieval of container information for a given Pod.
+func (k8s *K8SExec) GetPodContainer(podName string, containerName string) (*coreV1.Container, error) {
+	pod, err := k8s.GetPod(podName)
+	if err != nil {
+		return nil, err
+	}
+	for _, container := range pod.Spec.Containers {
+		if container.Name == containerName {
+			return &container, nil
+		}
+	}
+	return nil, fmt.Errorf("container %s not found in pod %s", containerName, podName)
+}
+
+// GetPodDefaultContainer retrieves the default container associated with a given Pod.
+// It leverages the Kubernetes client-go library to query the Kubernetes API for Pod containers,
+// facilitating the retrieval of container information for a given Pod.
+func (k8s *K8SExec) GetPodDefaultContainer(podName string) (*coreV1.Container, error) {
+	pod, err := k8s.GetPod(podName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for the specific annotation
+	if defaultName, ok := pod.ObjectMeta.Annotations["kubectl.kubernetes.io/default-container"]; ok {
+		for _, container := range pod.Spec.Containers {
+			if container.Name == defaultName {
+				return &container, nil
+			}
+		}
+	}
+	return &pod.Spec.Containers[0], nil
 }
 
 // GetPods retrieves all Pods within the namespace specified by the 'k8s' context.
@@ -587,9 +638,23 @@ func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util str
 	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelFunc()
 
-	retCode, _ := k8s.exec(ctx, podName, containerName, []string{util}, nil, &stdout, &stderr, false)
-	// TODO: Maybe it would make sense to make it a positive check for successful execution instead of a negative one
-	return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != ExitStatusOutOfRange
+	k8s.checkNotFoundExitCodeOnce.Do(func() {
+		randCmdName := "not-a-real-cmd-" + rand.String(20)
+		retCode, _ := k8s.exec(ctx, podName, containerName, []string{randCmdName}, nil, &stdout, &stderr, false)
+		k8s.notFoundExitCode = retCode
+	})
+
+	stdout.Reset()
+	stderr.Reset()
+
+	retCode, err := k8s.exec(ctx, podName, containerName, []string{util}, nil, &stdout, &stderr, false)
+	if retCode == InternalAppError {
+		// TODO: log error
+		_ = err
+		return false
+	}
+	//return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != ExitStatusOutOfRange
+	return retCode != k8s.notFoundExitCode
 }
 
 // exec executes a command provided via standard input ('stdin'), command-line arguments ('cmd'),
@@ -603,7 +668,7 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 		Resource("pods").
 		Name(podName).
 		Namespace(k8s.Namespace).
-		SubResource("exec").
+		SubResource("exec")w.
 		VersionedParams(&coreV1.PodExecOptions{
 			Container: containerName,
 			Command:   cmd,
@@ -629,7 +694,7 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 	if err != nil {
 		exitError := exec2.CodeExitError{}
 		if errors.As(err, &exitError) {
-			return ExitCode(exitError.Code), exitError
+			return ExitCode(exitError.ExitStatus()), exitError
 		}
 
 		return InternalAppError, err
