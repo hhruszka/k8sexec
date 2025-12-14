@@ -114,7 +114,10 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
-	fmt.Fprint(os.Stdout, stdout.String())
-	fmt.Fprint(os.Stderr, stderr.String())
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("Command: %v\n", command)
+	fmt.Println("Exit code: ", exitCode)
+	fmt.Fprint(os.Stdout, "Stdout:\n", stdout.String())
+	fmt.Fprint(os.Stderr, "Stderr:\n", stderr.String())
 	os.Exit(int(exitCode))
 }

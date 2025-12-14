@@ -80,7 +80,8 @@ const DEFAULT_TIMEOUT = 5 * time.Second
 type ExitCode int
 
 const (
-	ManualAssessmentNeeded ExitCode = iota - 3
+	NotExecutedDueToRoot ExitCode = iota - 4
+	ManualAssessmentNeeded
 	ExecutionTimeOut
 	InternalAppError
 	Success
