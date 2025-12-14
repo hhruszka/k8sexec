@@ -32,7 +32,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/remotecommand"
-	exec2 "k8s.io/client-go/util/exec"
+	"k8s.io/client-go/util/exec"
 )
 
 // ExecutionStatus encapsulates the result and details of executing a command within a specific container.
@@ -145,7 +145,7 @@ var throttle *TokenBucket = NewTokenBucket(2, 4)
 // GetExitCode returns an ExitCode retrieved from CodeExitError type returned by k8s.io/client-go/util/exec and
 // a corresponding description from exitCodeDescriptions map.
 func GetExitCode(err error) (ExitCode, string) {
-	var e exec2.CodeExitError
+	var e exec.CodeExitError
 	if !errors.As(err, &e) {
 		return InternalAppError, ""
 	}
@@ -668,7 +668,7 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 		Resource("pods").
 		Name(podName).
 		Namespace(k8s.Namespace).
-		SubResource("exec")w.
+		SubResource("exec").
 		VersionedParams(&coreV1.PodExecOptions{
 			Container: containerName,
 			Command:   cmd,
@@ -692,11 +692,10 @@ func (k8s *K8SExec) exec(ctx context.Context, podName string, containerName stri
 		Tty:    false,
 	})
 	if err != nil {
-		exitError := exec2.CodeExitError{}
+		exitError := exec.CodeExitError{}
 		if errors.As(err, &exitError) {
 			return ExitCode(exitError.ExitStatus()), exitError
 		}
-
 		return InternalAppError, err
 	}
 
