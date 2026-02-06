@@ -27,7 +27,7 @@ func (k8s *K8SExec) IsOpenShift() bool {
 
 // GetSCC retrieves the SecurityContextConstraints (SCC) named "restricted-v2" from an OpenShift cluster.
 // Returns the SCC object or an error if the cluster is not OpenShift or if retrieval fails.
-func (k8s *K8SExec) GetSCC() (*v1.SecurityContextConstraints, error) {
+func (k8s *K8SExec) GetSCC(sccName string) (*v1.SecurityContextConstraints, error) {
 	if !k8s.IsOpenShift() {
 		return nil, fmt.Errorf("cluster is not running OpenShift")
 	}
@@ -36,7 +36,7 @@ func (k8s *K8SExec) GetSCC() (*v1.SecurityContextConstraints, error) {
 		return nil, fmt.Errorf("error creating OpenShift Security Client: %w", err)
 	}
 
-	sccName := "restricted-v2"
+	// TODO: Check priority in SCC as well
 	scc, err := ocSecurityClient.SecurityV1().SecurityContextConstraints().Get(context.TODO(), sccName, metav1.GetOptions{})
 
 	if err != nil {
