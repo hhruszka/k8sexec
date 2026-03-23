@@ -177,9 +177,9 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 		return nil, err
 	}
 
-	config.QPS = 50
-	config.Burst = 100
-	config.Timeout = 300 * time.Second
+	config.QPS = 100
+	config.Burst = 200
+	config.Timeout = 30 * time.Second
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -188,6 +188,20 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 
 	return &K8SExec{
 		Config:         config,
+		Clientset:      clientset,
+		Namespace:      namespace,
+		ctx:            context.TODO(),
+		defaultTimeout: DEFAULT_TIMEOUT}, nil
+}
+
+func (k8s *K8SExec) Clone(namespace string) (*K8SExec, error) {
+	copied := rest.CopyConfig(k8s.Config)
+	clientset, err := kubernetes.NewForConfig(copied)
+	if err != nil {
+		return nil, err
+	}
+	return &K8SExec{
+		Config:         copied,
 		Clientset:      clientset,
 		Namespace:      namespace,
 		ctx:            context.TODO(),
