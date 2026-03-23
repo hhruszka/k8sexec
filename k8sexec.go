@@ -379,6 +379,18 @@ func (k8s *K8SExec) GetDaemonSets() (*v1.DaemonSetList, error) {
 	return daemonSets, nil
 }
 
+// GetConfigmaps fetches all ConfigMaps within the specified namespace, as determined by the 'k8s' context.
+// Utilizing the client-go library, this function communicates with the Kubernetes API to gather ConfigMaps,
+// returning a collection of ConfigMap resources and any errors encountered during the process.
+func (k8s *K8SExec) GetConfigmaps() (*coreV1.ConfigMapList, error) {
+	var configMaps *coreV1.ConfigMapList
+	configMaps, err := k8s.Clientset.CoreV1().ConfigMaps(k8s.Namespace).List(k8s.ctx, metaV1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return configMaps, nil
+}
+
 // mapToLabelSelector takes a map containing key-value pairs and converts it into a Kubernetes label selector
 // string format. This utility function is essential for crafting label selectors used in Kubernetes API queries,
 // allowing for the filtering of resources based on specified labels. The resulting string is a concatenation of
