@@ -114,6 +114,9 @@ const (
 // exitCodeDescriptions maps possible exit codes with descriptive names.
 var exitCodeDescriptions map[ExitCode]string = map[ExitCode]string{
 	-1:  "Internal app error",
+	-2:  "Execution time out",
+	-3:  "Manual assessment needed",
+	-4:  "Not executed due to root",
 	0:   "Success",
 	1:   "General error, unspecified error",
 	2:   "Incorrect usage or syntax of the command",
@@ -658,30 +661,50 @@ func (k8s *K8SExec) CheckIfFilePathExists(podName, containerName string, filePat
 	return retCode == Success
 }
 
+var execPaths = []string{
+	"",
+	"/bin/",
+	"/usr/bin/",
+	"/sbin/",
+	"/usr/sbin/",
+	"/usr/local/bin/",
+	"/usr/local/sbin/",
+}
+
 // CheckUtilInContainer verifies the existence of a specified 'util' binary within a container, identified
 // by the container's name and the associated pod's name.
 func (k8s *K8SExec) CheckUtilInContainer(podName, containerName string, util string) bool {
 	var stdout, stderr bytes.Buffer
-	ctx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancelFunc := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelFunc()
 
 	k8s.checkNotFoundExitCodeOnce.Do(func() {
 		randCmdName := "not-a-real-cmd-" + rand.String(20)
-		retCode, _ := k8s.exec(ctx, podName, containerName, []string{randCmdName}, nil, &stdout, &stderr, false)
-		k8s.notFoundExitCode = retCode
+		execStatus := k8s.ExecWithContext(ctx, podName, containerName, []string{randCmdName}, nil)
+		k8s.notFoundExitCode = execStatus.RetCode
 	})
 
-	stdout.Reset()
-	stderr.Reset()
+	var utilToCheck string
 
-	retCode, err := k8s.exec(ctx, podName, containerName, []string{util}, nil, &stdout, &stderr, false)
-	if retCode == InternalAppError {
-		// TODO: log error
-		_ = err
-		return false
+	util = util + " --unknow-option-to-check-if-exists"
+
+	for _, execPath := range execPaths {
+		stdout.Reset()
+		stderr.Reset()
+
+		utilToCheck = execPath + util
+
+		execStatus := k8s.ExecWithContext(ctx, podName, containerName, strings.Fields(utilToCheck), nil)
+		if execStatus.RetCode == InternalAppError {
+			continue
+		}
+
+		if execStatus.RetCode != k8s.notFoundExitCode {
+			return true
+		}
 	}
-	//return retCode != CommandNotFound && retCode != CommandCannotExecute && retCode != ExitStatusOutOfRange
-	return retCode != k8s.notFoundExitCode
+
+	return false
 }
 
 // exec executes a command provided via standard input ('stdin'), command-line arguments ('cmd'),
@@ -759,10 +782,6 @@ func (k8s *K8SExec) Exec(podName string, containerName string, args []string, st
 		errMessage = err.Error()
 	}
 
-	//errors.Is(err, context.Canceled) ||
-	//	errors.Is(err, io.EOF) ||
-	//	errors.Is(err, io.ErrUnexpectedEOF) ||
-
 	if net.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded) {
 		retCode = ExecutionTimeOut
 	}
@@ -783,5 +802,10 @@ func (k8s *K8SExec) ExecWithContext(ctx context.Context, podName string, contain
 	if err != nil {
 		errMessage = err.Error()
 	}
+
+	if net.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded) {
+		retCode = ExecutionTimeOut
+	}
+
 	return NewExecutionStatus(k8s.Namespace, podName, containerName, retCode, errMessage, stdout.String(), stderr.String(), execTime)
 }
