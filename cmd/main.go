@@ -101,7 +101,7 @@ func main() {
 	}
 
 	if container == "" {
-		defaultContainer, err := k8s.GetPodDefaultContainer(podName)
+		defaultContainer, err := k8s.GetPodDefaultContainer(context.Background(), namespace, podName)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, fmt.Errorf("Failed to retrieve default container for pod %s; %w", podName, err))
 			os.Exit(1)
@@ -110,7 +110,7 @@ func main() {
 	}
 
 	var stdout, stderr bytes.Buffer
-	exitCode, err := k8s.DirectExec(context.Background(), podName, container, command, os.Stdin, &stdout, &stderr, false)
+	exitCode, err := k8s.DirectExec(context.Background(), namespace, podName, container, command, os.Stdin, &stdout, &stderr, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
