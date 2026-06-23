@@ -199,17 +199,15 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 		defaultTimeout: DEFAULT_TIMEOUT}, nil
 }
 
-func (k8s *K8SExec) Clone(namespace string) (*K8SExec, error) {
+func (k8s *K8SExec) Clone() (*K8SExec, error) {
 	copied := rest.CopyConfig(k8s.Config)
 	clientset, err := kubernetes.NewForConfig(copied)
 	if err != nil {
 		return nil, err
 	}
 	return &K8SExec{
-		Config:    copied,
-		Clientset: clientset,
-		//Namespace:      namespace,
-		//ctx:            context.TODO(),
+		Config:         copied,
+		Clientset:      clientset,
 		defaultTimeout: DEFAULT_TIMEOUT}, nil
 }
 
