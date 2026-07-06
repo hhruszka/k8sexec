@@ -659,23 +659,27 @@ func (k8s *K8SExec) exec(ctx context.Context, namespace string, podName string, 
 		return InternalAppError, err
 	}
 
-	//throttle.Wait()
-
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
 		Stdout: stdout,
 		Stderr: stderr,
 		Tty:    false,
 	})
-	if err != nil {
-		exitError := exec.CodeExitError{}
-		if errors.As(err, &exitError) {
-			return ExitCode(exitError.ExitStatus()), exitError
+
+	codeExitError := exec.CodeExitError{}
+
+	switch {
+	case err == nil:
+		return Success, nil
+	case errors.As(err, &codeExitError):
+		code := codeExitError.ExitStatus()
+		if code == 126 || code == 127 { // some runtimes report not-found this way
+			return CommandNotFound, err
 		}
+		return ExitCode(code), codeExitError
+	default:
 		return InternalAppError, err
 	}
-
-	return Success, nil
 }
 
 // DirectExec executes a command inside a specified container of a pod, with I/O streams and TTY access if enabled.
