@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/apimachinery/pkg/util/net"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -53,6 +55,21 @@ type ExecutionStatus struct {
 
 // String returns a formatted string representation of an ExecutionStatus instance detailing execution parameters and results.
 func (e *ExecutionStatus) String() string {
+	stdout := strings.Join(e.Stdout, "\n")
+	if len(stdout) > 80 {
+		stdout = stdout[:80] + "..."
+	}
+	stderr := strings.Join(e.Stderr, "\n")
+	if len(stderr) > 80 {
+		stderr = stderr[:80] + "..."
+	}
+
+	return fmt.Sprintf("Namespace: %s, Pod: %s, Container: %s, RetCode: %d, Error: %s, Stdout: %s, Stderr: %s, ExecTime: %s",
+		e.Namespace, e.Pod, e.Container, e.RetCode, strings.Join(e.Error, "\n"), stdout, stderr, e.ExecTime)
+}
+
+// String returns a formatted string representation of an ExecutionStatus instance detailing execution parameters and results.
+func (e *ExecutionStatus) Raw() string {
 	return fmt.Sprintf("Namespace: %s, Pod: %s, Container: %s, RetCode: %d, Error: %s, Stdout: %s, Stderr: %s, ExecTime: %s",
 		e.Namespace, e.Pod, e.Container, e.RetCode, strings.Join(e.Error, "\n"), strings.Join(e.Stdout, "\n"), strings.Join(e.Stderr, "\n"), e.ExecTime)
 }
@@ -61,12 +78,9 @@ func (e *ExecutionStatus) String() string {
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
 // and authentication credentials, facilitating effective interaction with Kubernetes resources.
 type K8SExec struct {
-	Config         *rest.Config
-	Clientset      *kubernetes.Clientset
-	defaultTimeout time.Duration
+	Config    *rest.Config
+	Clientset *kubernetes.Clientset
 }
-
-const DEFAULT_TIMEOUT = 30 * time.Second
 
 // ExitCode is an enumeration of possible exit codes with descriptive names.
 // It provides a more idiomatic way to refer to exit codes within the Go application.
@@ -79,10 +93,10 @@ const (
 	InternalAppError
 	Success
 	GeneralError
-	IncorrectUsage
-	CommandCannotExecute  = 126
-	CommandNotFound       = 127
-	InvalidArgumentToExit = 128
+	IncorrectUsageExitCode
+	CommandCannotExecute  ExitCode = 126
+	CommandNotFound       ExitCode = 127
+	InvalidArgumentToExit ExitCode = 128
 	// Skips to specific values after the iota increment
 	ScriptTerminatedByControlC ExitCode = 130
 	ExitStatusOutOfRange       ExitCode = 255
@@ -143,8 +157,6 @@ var exitCodeDescriptions map[ExitCode]string = map[ExitCode]string{
 	143: "Fatal error signal 15 (SIGTERM)",
 }
 
-var throttle *TokenBucket = NewTokenBucket(2, 4)
-
 // GetExitCode returns an ExitCode retrieved from CodeExitError type returned by k8s.io/client-go/util/exec and
 // a corresponding description from exitCodeDescriptions map.
 func GetExitCode(err error) (ExitCode, string) {
@@ -173,7 +185,7 @@ func GetExitCodeDescription(code ExitCode) string {
 // to access and interact with the Kubernetes cluster. This function ensures that
 // the created K8SExec instance is ready to use for executing commands within Kubernetes
 // pods and containers, by embedding necessary configuration details.
-func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) {
+func NewK8SExec(kubeconfig string) (info *K8SExec, err error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return nil, err
@@ -181,7 +193,7 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 
 	config.QPS = 100
 	config.Burst = 200
-	config.Timeout = DEFAULT_TIMEOUT
+	config.Timeout = 0
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -189,9 +201,9 @@ func NewK8SExec(kubeconfig string, namespace string) (info *K8SExec, err error) 
 	}
 
 	return &K8SExec{
-		Config:         config,
-		Clientset:      clientset,
-		defaultTimeout: DEFAULT_TIMEOUT}, nil
+		Config:    config,
+		Clientset: clientset,
+	}, nil
 }
 
 func (k8s *K8SExec) Clone() (*K8SExec, error) {
@@ -201,19 +213,9 @@ func (k8s *K8SExec) Clone() (*K8SExec, error) {
 		return nil, err
 	}
 	return &K8SExec{
-		Config:         copied,
-		Clientset:      clientset,
-		defaultTimeout: DEFAULT_TIMEOUT}, nil
-}
-
-// SetTimeout sets the default timeout duration for Kubernetes execution operations.
-func (k8s *K8SExec) SetTimeout(timeout time.Duration) {
-	k8s.defaultTimeout = timeout
-}
-
-// GetTimeout returns the default timeout duration set for the K8SExec instance.
-func (k8s *K8SExec) GetTimeout() time.Duration {
-	return k8s.defaultTimeout
+		Config:    copied,
+		Clientset: clientset,
+	}, nil
 }
 
 // GetClientset returns the Kubernetes clientset associated with the K8SExec instance.
@@ -234,7 +236,7 @@ func (k8s *K8SExec) GetAllNamespaces(ctx context.Context) ([]string, error) {
 	}
 	var namespaces []string
 	for _, ns := range list.Items {
-		namespaces = append(namespaces, ns.GetNamespace())
+		namespaces = append(namespaces, ns.GetName())
 	}
 	return namespaces, nil
 }
@@ -310,7 +312,10 @@ func (k8s *K8SExec) GetPodDefaultContainer(ctx context.Context, namespace string
 			}
 		}
 	}
-	return &pod.Spec.Containers[0], nil
+	if len(pod.Spec.Containers) > 0 {
+		return &pod.Spec.Containers[0], nil
+	}
+	return nil, fmt.Errorf("no default container found")
 }
 
 // GetPods retrieves all Pods within the namespace specified by the 'k8s' context.
@@ -381,114 +386,79 @@ func (k8s *K8SExec) GetConfigmaps(ctx context.Context, namespace string) (*coreV
 	return configMaps, nil
 }
 
-// mapToLabelSelector takes a map containing key-value pairs and converts it into a Kubernetes label selector
-// string format. This utility function is essential for crafting label selectors used in Kubernetes API queries,
-// allowing for the filtering of resources based on specified labels. The resulting string is a concatenation of
-// the map's key-value pairs, formatted as 'key=value', and joined by commas for multiple pairs.
-// This conversion facilitates the dynamic selection of Kubernetes resources based on labels, enhancing
-// the flexibility and precision of resource queries within Kubernetes operations.
-func mapToLabelSelector(labels map[string]string) string {
-	var selectorParts []string
-	for key, value := range labels {
-		selectorParts = append(selectorParts, fmt.Sprintf("%s=%s", key, value))
+func score(p *coreV1.Pod) int {
+	switch {
+	case p.DeletionTimestamp != nil:
+		return 0 // being torn down; may vanish before you reach it
+	case hasRunningContainer(p):
+		return 3 // inspectable
+	case p.Status.Phase == coreV1.PodRunning:
+		return 2 // Running but nothing live — CrashLoopBackOff
+	case p.Status.Phase == coreV1.PodPending:
+		return 1
+	default:
+		return 0
 	}
-	return strings.Join(selectorParts, ",")
+}
+
+func hasRunningContainer(p *coreV1.Pod) bool {
+	for i := range p.Status.ContainerStatuses {
+		if p.Status.ContainerStatuses[i].State.Running != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func preferredPod(pod, cur *coreV1.Pod) *coreV1.Pod {
+	if sp, sc := score(pod), score(cur); sp != sc {
+		if sp > sc {
+			return pod
+		}
+		return cur
+	}
+	if pod.CreationTimestamp.After(cur.CreationTimestamp.Time) {
+		return pod
+	}
+	if pod.CreationTimestamp.Equal(&cur.CreationTimestamp) && pod.Name < cur.Name {
+		return pod
+	}
+	return cur
 }
 
 // GetPods retrieves a comprehensive and unique list of Pods within a given namespace,
-// as provided by the 'k8s' context. It targets Pods associated with Deployments, StatefulSets,
-// and those directly within the namespace, ensuring no duplicates.
-func (k8s *K8SExec) GetUniquePods(ctx context.Context, namespace string) (int, []coreV1.Pod, error) {
-	var uniquePods []coreV1.Pod
+// as provided by the 'k8s' context.
+func (k8s *K8SExec) GetUniquePods(ctx context.Context, namespace string) (int, []*coreV1.Pod, error) {
 
-	var deploymentPods map[string]int = make(map[string]int)
-	deployments, err := k8s.GetDeployments(ctx, namespace)
+	podsList, err := k8s.Clientset.CoreV1().Pods(namespace).List(ctx, metaV1.ListOptions{FieldSelector: "status.phase!=Succeeded,status.phase!=Failed"})
 	if err != nil {
 		return 0, nil, err
 	}
+	var notOwnedPods []*coreV1.Pod
+	var ownedPods map[types.UID]*coreV1.Pod = make(map[types.UID]*coreV1.Pod)
 
-	for _, deployment := range deployments.Items {
-		// to find all pods that are part of a given deployment we need to use deployment.Spec.Selector.MatchLabels
-		// from the deployment. This is essential.
-		options := metaV1.ListOptions{LabelSelector: mapToLabelSelector(deployment.Spec.Selector.MatchLabels)}
-		pods, err := k8s.GetPods(ctx, namespace, options)
-		if err != nil {
+	for i := range podsList.Items {
+		pod := &podsList.Items[i]
+		owner := metaV1.GetControllerOf(pod)
+		if owner == nil {
+			notOwnedPods = append(notOwnedPods, pod)
 			continue
 		}
-		// we are interested only in one instance of a pod
-		if len(pods) > 0 {
-			uniquePods = append(uniquePods, pods[0])
-		}
-		for _, pod := range pods {
-			deploymentPods[pod.Name]++
-		}
-	}
-
-	var statefulSetsPods map[string]int = make(map[string]int)
-	statefulSets, err := k8s.GetStatefulSets(ctx, namespace)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	for _, statefulSet := range statefulSets.Items {
-		// to find all pods that are part of a given deployment we need to use statefulSet.Spec.Selector.MatchLabels
-		// from the deployment. This is essential.
-		options := metaV1.ListOptions{LabelSelector: mapToLabelSelector(statefulSet.Spec.Selector.MatchLabels)}
-		pods, err := k8s.GetPods(ctx, namespace, options)
-		if err != nil {
+		if cur, ok := ownedPods[owner.UID]; ok {
+			preferred := preferredPod(pod, cur)
+			ownedPods[owner.UID] = preferred
 			continue
 		}
-		// we are interested only in one instance of a pod
-		//podCount += len(pods)
-		if len(pods) > 0 {
-			uniquePods = append(uniquePods, pods[0])
-		}
-		for _, pod := range pods {
-			statefulSetsPods[pod.Name]++
-		}
+		ownedPods[owner.UID] = pod
 	}
 
-	var daemonSetsPods map[string]int = make(map[string]int)
-	daemonSets, err := k8s.GetDaemonSets(ctx, namespace)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	for _, daemonSet := range daemonSets.Items {
-		// to find all pods that are part of a given deployment we need to use statefulSet.Spec.Selector.MatchLabels
-		// from the deployment. This is essential.
-		options := metaV1.ListOptions{LabelSelector: mapToLabelSelector(daemonSet.Spec.Selector.MatchLabels)}
-		pods, err := k8s.GetPods(ctx, namespace, options)
-		if err != nil {
-			continue
-		}
-		// we are interested only in one instance of a pod
-		//podCount += len(pods)
-		if len(pods) > 0 {
-			uniquePods = append(uniquePods, pods[0])
-		}
-		for _, pod := range pods {
-			daemonSetsPods[pod.Name]++
-		}
-	}
-
-	podsList, err := k8s.Clientset.CoreV1().Pods(namespace).List(ctx, metaV1.ListOptions{})
-	if err != nil {
-		return 0, nil, err
-	}
-	for _, pod := range podsList.Items {
-		if _, ok := deploymentPods[pod.Name]; ok {
-			continue
-		}
-		if _, ok := statefulSetsPods[pod.Name]; ok {
-			continue
-		}
-		if _, ok := daemonSetsPods[pod.Name]; ok {
-			continue
-		}
+	uniquePods := make([]*coreV1.Pod, 0, len(ownedPods))
+	for _, pod := range ownedPods {
 		uniquePods = append(uniquePods, pod)
 	}
 
+	uniquePods = append(uniquePods, notOwnedPods...)
+	sort.Slice(uniquePods, func(i, j int) bool { return uniquePods[i].Name < uniquePods[j].Name })
 	return len(podsList.Items), uniquePods, nil
 }
 
@@ -525,8 +495,6 @@ func (k8s *K8SExec) GetLogs(ctx context.Context, namespace string, podName strin
 	opt.Container = containerName
 	req := k8s.Clientset.CoreV1().Pods(namespace).GetLogs(podName, opt)
 
-	throttle.Wait()
-
 	// Read log stream
 	logReader, err := req.Stream(ctx)
 	if err != nil {
@@ -534,29 +502,28 @@ func (k8s *K8SExec) GetLogs(ctx context.Context, namespace string, podName strin
 	}
 	defer logReader.Close()
 
-	runtime.ErrorHandlers = []runtime.ErrorHandler{
-		func(ctx context.Context, err error, msg string, keysAndValues ...interface{}) {
-			// ignore unhandled errors
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.ErrUnexpectedEOF) {
-				return
-			}
-
-		},
-	}
+	//runtime.ErrorHandlers = []runtime.ErrorHandler{
+	//	func(ctx context.Context, err error, msg string, keysAndValues ...interface{}) {
+	//		// ignore unhandled errors
+	//		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, io.ErrUnexpectedEOF) {
+	//			return
+	//		}
+	//
+	//	},
+	//}
 
 	buf := new(bytes.Buffer)
 	r := bufio.NewReader(logReader)
 	for {
 		data, err := r.ReadBytes('\n')
-		if _, err := buf.Write(data); err != nil {
-			return 0, nil, err
-		}
-
 		if err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrClosedPipe) && !errors.Is(err, io.ErrUnexpectedEOF) {
 				return 0, nil, err
 			}
 			break
+		}
+		if _, err := buf.Write(data); err != nil {
+			return 0, nil, err
 		}
 	}
 
@@ -572,15 +539,23 @@ func (k8s *K8SExec) ReadFile(ctx context.Context, namespace string, podName, con
 
 	retCode, err := k8s.exec(ctx, namespace, podName, containerName, []string{"cat", filePath}, nil, &stdout, &stderr, false)
 	if retCode != Success {
+		stdout.Reset()
+		stderr.Reset()
 		retCode, err = k8s.exec(ctx, namespace, podName, containerName, []string{"sed", "", filePath}, nil, &stdout, &stderr, false)
 	}
 	if retCode != Success {
+		stdout.Reset()
+		stderr.Reset()
 		retCode, err = k8s.exec(ctx, namespace, podName, containerName, []string{"tail", "-n", "+1", filePath}, nil, &stdout, &stderr, false)
 	}
 	if retCode != Success {
+		stdout.Reset()
+		stderr.Reset()
 		command := []string{
 			"sh", "-c",
-			fmt.Sprintf("while IFS= read -r line; do echo \"$line\"; done < '%s'", filePath),
+			`while IFS= read -r line; do echo "$line"; done < "$0"`,
+			filePath,
+			//fmt.Sprintf("while IFS= read -r line; do echo \"$line\"; done < '%s'", filePath),
 		}
 		retCode, err = k8s.exec(ctx, namespace, podName, containerName, command, nil, &stdout, &stderr, false)
 	}
@@ -597,13 +572,13 @@ func (k8s *K8SExec) CheckIfFilePathIsReadable(ctx context.Context, namespace str
 
 	// stat failed, let's try 'test -r'
 	if retCode != Success {
-		retCode, _ = k8s.exec(ctx, namespace, podName, containerName, []string{"sh", "-c", fmt.Sprintf("test -r '%s'", filePath)}, nil, &stdout, &stderr, false)
+		retCode, _ = k8s.exec(ctx, namespace, podName, containerName, []string{"sh", "-c", `test -r "$0"`, filePath}, nil, &stdout, &stderr, false)
 
 		return retCode == Success
 	}
 
 	// stat was successful so let's analyze permissions
-	permStr := stdout.String()
+	permStr := strings.TrimSpace(stdout.String())
 	if len(permStr) >= 3 {
 		if len(permStr) == 4 {
 			permStr = permStr[1:]
@@ -654,16 +629,32 @@ func (k8s *K8SExec) exec(ctx context.Context, namespace string, podName string, 
 			TTY:       tty,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewSPDYExecutor(k8s.Config, "POST", req.URL())
+	spdyExecutor, err := remotecommand.NewSPDYExecutor(k8s.Config, "POST", req.URL())
 	if err != nil {
-		return InternalAppError, err
+		return InternalAppError, fmt.Errorf("failed to create SPDY executor: %w", err)
+	}
+
+	// WebSockets strictly use GET for the HTTP upgrade handshake
+	wsExecutor, err := remotecommand.NewWebSocketExecutor(k8s.Config, "GET", req.URL().String())
+	if err != nil {
+		return InternalAppError, fmt.Errorf("failed to create WebSocket executor: %w", err)
+	}
+
+	// This attempts WebSockets first. If the server rejects the upgrade (e.g., an older
+	// Kubernetes version), it evaluates the fallback condition and drops down to SPDY.
+	executor, err := remotecommand.NewFallbackExecutor(wsExecutor, spdyExecutor, func(err error) bool {
+		// httpstream.IsUpgradeFailure checks if the error indicates the server doesn't support the protocol
+		return httpstream.IsUpgradeFailure(err)
+	})
+	if err != nil {
+		return InternalAppError, fmt.Errorf("failed to create fallback executor: %w", err)
 	}
 
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
 		Stdout: stdout,
 		Stderr: stderr,
-		Tty:    false,
+		Tty:    tty,
 	})
 
 	codeExitError := exec.CodeExitError{}
@@ -673,7 +664,11 @@ func (k8s *K8SExec) exec(ctx context.Context, namespace string, podName string, 
 		return Success, nil
 	case errors.As(err, &codeExitError):
 		code := codeExitError.ExitStatus()
-		if code == 126 || code == 127 { // some runtimes report not-found this way
+		if code == 126 {
+			// permission denied / not executable
+			return CommandCannotExecute, err
+		}
+		if code == 127 { // some runtimes report not-found this way
 			return CommandNotFound, err
 		}
 		return ExitCode(code), codeExitError
