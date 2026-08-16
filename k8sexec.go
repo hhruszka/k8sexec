@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
-
 	"slices"
 	"strings"
 	"time"
@@ -18,7 +16,6 @@ import (
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/net"
-	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -64,11 +61,9 @@ func (e *ExecutionStatus) String() string {
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
 // and authentication credentials, facilitating effective interaction with Kubernetes resources.
 type K8SExec struct {
-	Config                    *rest.Config
-	Clientset                 *kubernetes.Clientset
-	defaultTimeout            time.Duration
-	checkNotFoundExitCodeOnce sync.Once
-	notFoundExitCode          ExitCode
+	Config         *rest.Config
+	Clientset      *kubernetes.Clientset
+	defaultTimeout time.Duration
 }
 
 const DEFAULT_TIMEOUT = 30 * time.Second
@@ -638,48 +633,6 @@ func (k8s *K8SExec) CheckIfFilePathExists(namespace string, podName, containerNa
 	return retCode == Success
 }
 
-var execPaths = []string{
-	"",
-	"/bin/",
-	"/usr/bin/",
-	"/sbin/",
-	"/usr/sbin/",
-	"/usr/local/bin/",
-	"/usr/local/sbin/",
-}
-
-// CheckUtilInContainer verifies the existence of a specified 'util' binary within a container, identified
-// by the container's name and the associated pod's name.
-func (k8s *K8SExec) CheckUtilInContainer(ctx context.Context, namespace string, podName, containerName string, util string) bool {
-	ctx, cancelFunc := context.WithTimeout(ctx, 15*time.Second)
-	defer cancelFunc()
-
-	k8s.checkNotFoundExitCodeOnce.Do(func() {
-		randCmdName := "not-a-real-cmd-" + rand.String(20)
-		execStatus := k8s.ExecWithContext(ctx, namespace, podName, containerName, []string{randCmdName}, nil)
-		k8s.notFoundExitCode = execStatus.RetCode
-	})
-
-	var utilToCheck string
-
-	util = util + " --unknow-option-to-check-if-exists"
-
-	for _, execPath := range execPaths {
-		utilToCheck = execPath + util
-
-		execStatus := k8s.ExecWithContext(ctx, namespace, podName, containerName, strings.Fields(utilToCheck), nil)
-		if execStatus.RetCode == InternalAppError {
-			continue
-		}
-
-		if execStatus.RetCode != k8s.notFoundExitCode {
-			return true
-		}
-	}
-
-	return false
-}
-
 // exec executes a command provided via standard input ('stdin'), command-line arguments ('cmd'),
 // or both, offering a versatile interface for command execution. Upon completion, it returns a POSIX
 // execution code to indicate the success or failure of the operation, alongside any error encountered
@@ -706,23 +659,27 @@ func (k8s *K8SExec) exec(ctx context.Context, namespace string, podName string, 
 		return InternalAppError, err
 	}
 
-	//throttle.Wait()
-
 	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
 		Stdin:  stdin,
 		Stdout: stdout,
 		Stderr: stderr,
 		Tty:    false,
 	})
-	if err != nil {
-		exitError := exec.CodeExitError{}
-		if errors.As(err, &exitError) {
-			return ExitCode(exitError.ExitStatus()), exitError
+
+	codeExitError := exec.CodeExitError{}
+
+	switch {
+	case err == nil:
+		return Success, nil
+	case errors.As(err, &codeExitError):
+		code := codeExitError.ExitStatus()
+		if code == 126 || code == 127 { // some runtimes report not-found this way
+			return CommandNotFound, err
 		}
+		return ExitCode(code), codeExitError
+	default:
 		return InternalAppError, err
 	}
-
-	return Success, nil
 }
 
 // DirectExec executes a command inside a specified container of a pod, with I/O streams and TTY access if enabled.
