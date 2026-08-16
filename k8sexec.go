@@ -43,7 +43,7 @@ import (
 //
 // The record no longer carries the namespace, pod and container names: callers pass
 // those as parameters when they execute, so they already hold that identity.
-type ExecutionStatus = execrecord.ExecutionRecord
+type ExecutionStatus = execrecord.Record
 
 // K8SExec defines the context for modules executing commands in Kubernetes environments.
 // It includes details necessary for operations, such as cluster configuration, target pod and container,
@@ -778,16 +778,16 @@ func (k8s *K8SExec) DirectExec(ctx context.Context, namespace string, podName st
 // to encapsulate the outcome of a command's execution within a structured format.
 // This function serves as a constructor, setting up an ExecutionStatus instance.
 //
-// It delegates to execrecord.New; prefer calling that directly in new code.
+// It delegates to execrecord.NewRecord; prefer calling that directly in new code.
 func NewExecutionStatus(retCode ExitCode, error string, stdout string, stderr string, execTime time.Time) *ExecutionStatus {
-	return execrecord.New(retCode, error, stdout, stderr, execTime)
+	return execrecord.NewRecord(retCode, error, stdout, stderr, execTime)
 }
 
 // Exec executes a command provided through standard input ('stdin') or as arguments ('args'),
 // or a combination of both, bounded by the given timeout.
 //
 // See ExecWithContext for the contract; this differs only in building the context.
-func (k8s *K8SExec) Exec(namespace string, podName string, containerName string, args []string, stdin io.Reader, timeout time.Duration) (*execrecord.ExecutionRecord, error) {
+func (k8s *K8SExec) Exec(namespace string, podName string, containerName string, args []string, stdin io.Reader, timeout time.Duration) (*execrecord.Record, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -805,7 +805,7 @@ func (k8s *K8SExec) Exec(namespace string, podName string, containerName string,
 // ErrNotExecuted — or ErrTimeout, which itself wraps ErrNotExecuted, when the deadline
 // fired. A nil record means nothing ran, which is a different fact from a command that
 // ran and failed, and callers should render it differently.
-func (k8s *K8SExec) ExecWithContext(ctx context.Context, namespace string, podName string, containerName string, args []string, stdin io.Reader) (*execrecord.ExecutionRecord, error) {
+func (k8s *K8SExec) ExecWithContext(ctx context.Context, namespace string, podName string, containerName string, args []string, stdin io.Reader) (*execrecord.Record, error) {
 	var stdout, stderr bytes.Buffer
 	var errMessage string
 
@@ -822,5 +822,5 @@ func (k8s *K8SExec) ExecWithContext(ctx context.Context, namespace string, podNa
 		errMessage = err.Error()
 	}
 
-	return execrecord.New(retCode, errMessage, stdout.String(), stderr.String(), execTime), nil
+	return execrecord.NewRecord(retCode, errMessage, stdout.String(), stderr.String(), execTime), nil
 }
