@@ -33,6 +33,7 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
+	github.com/hhruszka/execrecord v0.0.0
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
@@ -66,3 +67,5 @@ require (
 )
 
 replace sigs.k8s.io/structured-merge-diff@v6 => sigs.k8s.io/structured-merge-diff/v4 v4.7.0
+
+replace github.com/hhruszka/execrecord => ../execrecord

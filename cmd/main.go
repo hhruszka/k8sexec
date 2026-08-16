@@ -94,7 +94,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	k8s, err := k8sexec.NewK8SExec(kubeconfig, namespace)
+	k8s, err := k8sexec.NewK8SExec(kubeconfig)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -113,6 +113,12 @@ func main() {
 	exitCode, err := k8s.DirectExec(context.Background(), namespace, podName, container, command, os.Stdin, &stdout, &stderr, false)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+
+		// Without an exit status from the command there is nothing meaningful to
+		// propagate, and exiting 0 here would report a failed connection as success.
+		if _, _, ok := k8sexec.GetExitCode(err); !ok {
+			os.Exit(1)
+		}
 	}
 	fmt.Println(strings.Repeat("-", 80))
 	fmt.Printf("Command: %v\n", command)
