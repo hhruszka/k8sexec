@@ -1,9 +1,8 @@
-module k8sexec
+module github.com/hhruszka/k8sexec
 
 go 1.26.0
 
 require (
-	github.com/hhruszka/k8sexec v1.9.0
 	github.com/openshift/api v0.0.0-20260623101811-c5eb460d04e3
 	github.com/openshift/client-go v0.0.0-20260622130833-df412d4d283e
 	k8s.io/api v0.36.2

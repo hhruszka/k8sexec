@@ -605,6 +605,7 @@ func classify(err error, namespace, podName, containerName string) error {
 	var codeExitError exec.CodeExitError
 	switch {
 	case errors.As(err, &codeExitError):
+		// A non-zero exit code is a process outcome, not an execution failure.
 		return nil
 	case net.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded):
 		return fmt.Errorf("%w: %s/%s in %s: %w", ErrTimeout, podName, containerName, namespace, err)
@@ -814,12 +815,6 @@ func (k8s *K8SExec) ExecWithContext(ctx context.Context, namespace string, podNa
 
 	if execErr := classify(err, namespace, podName, containerName); execErr != nil {
 		return nil, execErr
-	}
-
-	// err surviving classify means the command ran and exited non-zero: a process
-	// outcome, recorded rather than returned.
-	if err != nil {
-		errMessage = err.Error()
 	}
 
 	return execrecord.NewRecord(retCode, errMessage, stdout.String(), stderr.String(), execTime), nil
