@@ -543,6 +543,52 @@ func (k8s *K8SExec) GetLogs(ctx context.Context, namespace string, podName strin
 	return buf.Len(), buf.Bytes(), nil
 }
 
+// GetImagePullSecrets retrieves the image pull secrets for a given pod and its associated service account in the namespace.
+func (k8s *K8SExec) GetImagePullSecrets(ctx context.Context, namespace, podName string) ([]string, error) {
+	var secrets []string
+	pod, err := k8s.Clientset.CoreV1().Pods(namespace).Get(ctx, podName, metaV1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if pod.Spec.ImagePullSecrets != nil {
+		for _, secret := range pod.Spec.ImagePullSecrets {
+			secrets = append(secrets, secret.Name)
+		}
+	}
+
+	var sa *coreV1.ServiceAccount
+	if pod.Spec.ServiceAccountName != "" {
+		sa, err = k8s.Clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, pod.Spec.ServiceAccountName, metaV1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
+		if sa != nil {
+			for _, secret := range sa.ImagePullSecrets {
+				secrets = append(secrets, secret.Name)
+			}
+		}
+	}
+
+	sa, err = k8s.Clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, "default", metaV1.GetOptions{})
+	if err == nil && sa != nil {
+		for _, secret := range sa.ImagePullSecrets {
+			secrets = append(secrets, secret.Name)
+		}
+	}
+
+	return secrets, nil
+}
+
+// GetServiceAccount retrieves the service account for a given pod in the namespace.
+func (k8s *K8SExec) GetServiceAccountName(ctx context.Context, namespace string, podName string) (string, error) {
+	pod, err := k8s.Clientset.CoreV1().Pods(namespace).Get(ctx, podName, metaV1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return pod.Spec.ServiceAccountName, nil
+}
+
 func (k8s *K8SExec) ReadFile(ctx context.Context, namespace string, podName, containerName string, filePath string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	var err error
