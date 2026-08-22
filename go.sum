@@ -1,5 +1,6 @@
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
+github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
@@ -27,6 +28,7 @@ github.com/go-openapi/swag/jsonname v0.26.1/go.mod h1:OvdW6BoWoj33pTfi7x9vFrgmT+
 github.com/go-openapi/swag/jsonutils v0.26.1 h1:2hdBfFkHg+7Wrz2VsCbeyR6hzkRDs7AztnMR2u84yOY=
 github.com/go-openapi/swag/jsonutils v0.26.1/go.mod h1:U+RMJH3wa+6BRiphuRtIyI8fW9HPFqFQ4sHk2oRx0UQ=
 github.com/go-openapi/swag/jsonutils/fixtures_test v0.26.1 h1:1CD7NiLLb/TXl3tOnFYU4b+mNfb5rtgHkaA+q7RMYYQ=
+github.com/go-openapi/swag/jsonutils/fixtures_test v0.26.1/go.mod h1:ZWafc8nMdYzTE3uYY6W86f0n46+IF0g4uUyRhJw/kXc=
 github.com/go-openapi/swag/loading v0.26.1 h1:E9K4wqXeROlhjFQ13K9zMz6ojFGXIggGe+ad1odrK9w=
 github.com/go-openapi/swag/loading v0.26.1/go.mod h1:3qvRIlWzWdq1HvmldwmuJ2ohpcAryN6xVt2OTKd0/7E=
 github.com/go-openapi/swag/mangling v0.26.1 h1:gpYI4WuPKFJJVjV5cDLGlDVJhFIxYjQc7yN5eEb4CqM=
@@ -40,7 +42,9 @@ github.com/go-openapi/swag/typeutils v0.26.1/go.mod h1:VfnV+oUtSP2vCSCn2aJgnr8Oe
 github.com/go-openapi/swag/yamlutils v0.26.1 h1:0TSLK+lXs9vfIhAWzBeI/lOzEnIoot6WTCO1aAeWFTk=
 github.com/go-openapi/swag/yamlutils v0.26.1/go.mod h1:7W5b7PRX9MxwL7TjeG7H8HkyBGRsIDRObhyMWFgBI2M=
 github.com/go-openapi/testify/enable/yaml/v2 v2.5.1 h1:q9NtHwK4qHF7yZziBPvZyv7zWAIk8ok88Gh2mR6Jpc8=
+github.com/go-openapi/testify/enable/yaml/v2 v2.5.1/go.mod h1:JW0MXIotCYps/XsgJnG3a8Q7rE5xAiBwoOD5OfaIQBk=
 github.com/go-openapi/testify/v2 v2.5.1 h1:TMdhCaw8fUNraVSf3Omoob1dO/AzBfhtFAPW0an6sBo=
+github.com/go-openapi/testify/v2 v2.5.1/go.mod h1:SgsVHtfooshd0tublTtJ50FPKhujf47YRqauXXOUxfw=
 github.com/google/gnostic-models v0.7.1 h1:SisTfuFKJSKM5CPZkffwi6coztzzeYUhc3v4yxLWH8c=
 github.com/google/gnostic-models v0.7.1/go.mod h1:whL5G0m6dmc5cPxKc5bdKdEN3UjI7OUGxBlw57miDrQ=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
@@ -50,8 +54,8 @@ github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 h1:JeSE6pjso5THxAzdVpqr6/geYxZytqFMBCOtn/ujyeo=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w70xmWCQKmi1ONH4KIaBptdivuRPyosB9RmPlGEwA=
-github.com/hhruszka/k8sexec v1.9.0 h1:aOC0mWVbCxMvaQsmxOLqfVesZcUMFDlUc0LGqnCXQzI=
-github.com/hhruszka/k8sexec v1.9.0/go.mod h1:/qJai/kT56umaIa3BQ5zZOKQIEfCSrqFcQhxZOuAhJ8=
+github.com/hhruszka/execrecord v1.1.0 h1:vhhJAZd3+h5gFriaYmvkbs/Dm4F5Dyx+pC6YFAjYeWg=
+github.com/hhruszka/execrecord v1.1.0/go.mod h1:AckJaoGughRPlFyrJgyYHJ+mIu9SRR2CRGt8QVlCmMk=
 github.com/json-iterator/go v1.1.12 h1:PV8peI4a0ysnczrg+LtxykD8LfKY9ML6u2jnxaEnrnM=
 github.com/json-iterator/go v1.1.12/go.mod h1:e30LSqwooZae/UwlEbR2852Gd8hjQvJoHmT4TnhNGBo=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=

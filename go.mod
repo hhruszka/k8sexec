@@ -10,6 +10,8 @@ require (
 	k8s.io/client-go v0.36.2
 )
 
+require github.com/kr/text v0.2.0 // indirect
+
 require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -32,7 +34,7 @@ require (
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/hhruszka/execrecord v0.0.0
+	github.com/hhruszka/execrecord v1.1.0
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -60,7 +62,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
-
-replace sigs.k8s.io/structured-merge-diff@v6 => sigs.k8s.io/structured-merge-diff/v4 v4.7.0
-
-replace github.com/hhruszka/execrecord => ../execrecord
