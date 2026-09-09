@@ -137,14 +137,14 @@ func GetExitCodeDescription(code ExitCode) string {
 // to access and interact with the Kubernetes cluster. This function ensures that
 // the created K8SExec instance is ready to use for executing commands within Kubernetes
 // pods and containers, by embedding necessary configuration details.
-func NewK8SExec(kubeconfig string, timeout time.Duration) (info *K8SExec, err error) {
+func New(kubeconfig string, qps float32, burst int, timeout time.Duration) (info *K8SExec, err error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
 		return nil, err
 	}
 
-	config.QPS = 100
-	config.Burst = 200
+	config.QPS = qps
+	config.Burst = burst
 	config.Timeout = timeout
 
 	clientset, err := kubernetes.NewForConfig(config)
