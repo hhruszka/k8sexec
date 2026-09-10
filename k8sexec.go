@@ -132,7 +132,7 @@ func GetExitCodeDescription(code ExitCode) string {
 	return execrecord.Description(code)
 }
 
-// NewK8SExec creates and initializes an instance of the K8SExec type.
+// New creates and initializes an instance of the K8SExec type.
 // It takes Kubernetes configuration information as parameters, which are required
 // to access and interact with the Kubernetes cluster. This function ensures that
 // the created K8SExec instance is ready to use for executing commands within Kubernetes
