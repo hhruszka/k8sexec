@@ -392,6 +392,9 @@ func (k8s *K8SExec) replicaSetOwners(ctx context.Context, namespace string) (map
 	}
 	owners := make(map[types.UID]types.UID, len(rsList.Items))
 	for i := range rsList.Items {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		rs := &rsList.Items[i]
 		if owner := metaV1.GetControllerOf(rs); owner != nil {
 			owners[rs.UID] = owner.UID
@@ -450,6 +453,9 @@ func (k8s *K8SExec) GetUniquePods(ctx context.Context, namespace string) (int, [
 	var ownedPods map[types.UID]*coreV1.Pod = make(map[types.UID]*coreV1.Pod)
 
 	for i := range podsList.Items {
+		if ctx.Err() != nil {
+			return 0, nil, ctx.Err()
+		}
 		pod := &podsList.Items[i]
 		key, owned := rootOwner(pod, rsOwners)
 		if !owned {

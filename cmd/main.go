@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"path/filepath"
 	"strings"
@@ -44,6 +45,9 @@ func main() {
 		podName    string
 		container  string
 		enviroment Enviroment
+		qps        float64
+		k8sTimeout time.Duration
+		k8sBurst   int
 	)
 
 	if len(os.Args) < 2 {
@@ -69,6 +73,9 @@ func main() {
 	fs.Var(&enviroment, "e", "Environment variables to use during execution.Can be specified multiple times.")
 	fs.StringVar(&container, "container", "", "Container name to execute command on.")
 	fs.StringVar(&container, "c", "", "Container name to execute command on.")
+	fs.Float64Var(&qps,"k8s-qps",50,"set k8s client QPS")
+	fs.DurationVar(&k8sTimeout,"k8s-timeout",time.Minute,"set k8s client timeout e.g. 1m, 10s")
+	fs.IntVar(&k8sBurst,"k8s-burst",100,"set k8s client burst")
 	fs.Usage = usage
 	flag.Usage = fs.Usage
 
@@ -94,7 +101,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	k8s, err := k8sexec.NewK8SExec(kubeconfig)
+	k8s, err := k8sexec.New(kubeconfig, float32(qps),k8sBurst, k8sTimeout)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
