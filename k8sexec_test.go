@@ -224,8 +224,8 @@ func TestPreferredPod(t *testing.T) {
 func TestExecutionStatusAliasIsSharedType(t *testing.T) {
 	now := time.Now()
 
-	var fromLocal *ExecutionStatus = execrecord.New(Success, "", "out", "", now)
-	var fromShared *execrecord.ExecutionRecord = NewExecutionStatus(Success, "", "out", "", now)
+	var fromLocal *ExecutionStatus = execrecord.NewRecord(Success, "", "out", "", now)
+	var fromShared *execrecord.Record = NewExecutionStatus(Success, "", "out", "", now)
 
 	if fromLocal.RetCode != fromShared.RetCode {
 		t.Errorf("RetCode mismatch: %v != %v", fromLocal.RetCode, fromShared.RetCode)

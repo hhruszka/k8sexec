@@ -238,9 +238,12 @@ func TestCheckIfFilePathIsReadableReportsTransportFailure(t *testing.T) {
 // reported rather than retried four times, and that no partial output is returned
 // alongside the error.
 func TestReadFileReportsTransportFailure(t *testing.T) {
+	// Each exec sends a WebSocket GET and then, on upgrade failure, an SPDY POST.
 	attempts := 0
 	k8s := newExecTarget(t, func(w http.ResponseWriter, r *http.Request) {
-		attempts++
+		if r.Method == http.MethodGet {
+			attempts++
+		}
 		refuseUpgrade(w, r)
 	})
 
@@ -258,6 +261,26 @@ func TestReadFileReportsTransportFailure(t *testing.T) {
 	// Falling back to sed, tail and a shell loop cannot fix an unreachable container.
 	if attempts > 1 {
 		t.Errorf("ReadFile made %d attempts; a transport failure should stop after the first", attempts)
+	}
+}
+
+// TestExecFallsBackToSPDYOnRejectedWebSocket covers servers or proxies that refuse the
+// WebSocket upgrade, e.g. with 403 when RBAC grants create but not get on pods/exec.
+// The SPDY POST must still be attempted.
+func TestExecFallsBackToSPDYOnRejectedWebSocket(t *testing.T) {
+	var methods []string
+	k8s := newExecTarget(t, func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		http.Error(w, "forbidden", http.StatusForbidden)
+	})
+
+	_, err := k8s.exec(context.Background(), "ns", "pod", "container", []string{"true"}, nil, nil, nil, false)
+
+	if err == nil {
+		t.Fatal("exec() error = nil, want a transport failure")
+	}
+	if len(methods) != 2 || methods[0] != http.MethodGet || methods[1] != http.MethodPost {
+		t.Errorf("requests = %v, want [GET POST]: a rejected WebSocket upgrade must fall back to SPDY", methods)
 	}
 }
 
