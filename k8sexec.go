@@ -19,6 +19,7 @@ import (
 	coreV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -789,11 +790,11 @@ func (k8s *K8SExec) exec(ctx context.Context, namespace string, podName string, 
 		return Success, fmt.Errorf("failed to create WebSocket executor: %w", err)
 	}
 
-	// This attempts WebSockets first. If the server rejects the upgrade (e.g., an older
-	// Kubernetes version), it evaluates the fallback condition and drops down to SPDY.
+	// WebSocket first. Fall back to SPDY only when the upgrade never happens.
+	// A CodeExitError is a finished command, and FallbackExecutor would otherwise
+	// run it again. That second run sees an already-consumed stdin.
 	executor, err := remotecommand.NewFallbackExecutor(wsExecutor, spdyExecutor, func(err error) bool {
-		// httpstream.IsUpgradeFailure checks if the error indicates the server doesn't support the protocol
-		return ctx.Err() == nil
+		return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
 	})
 	if err != nil {
 		return Success, fmt.Errorf("failed to create fallback executor: %w", err)
